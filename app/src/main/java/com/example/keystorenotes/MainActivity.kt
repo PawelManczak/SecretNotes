@@ -1,11 +1,18 @@
 package com.example.keystorenotes
 
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.util.Base64
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.contract.ActivityResultContracts.CreateDocument
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -13,9 +20,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -34,9 +43,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.example.keystorenotes.ui.theme.KeystoreNotesTheme
+import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.FileOutputStream
+import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.nio.charset.Charset
 
@@ -44,6 +56,8 @@ class MainActivity : ComponentActivity() {
 
     lateinit var context: Context
     private var exportText: String = ""
+    private var importText: String = ""
+    private var fileSelected = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,13 +73,19 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun DataEncryptionScreen() {
+
         val context = LocalContext.current
         val focusManager = LocalFocusManager.current
 
-        val inputText = remember { mutableStateOf("") }
-        val outputText = remember { mutableStateOf("") }
+        var inputText by remember { mutableStateOf("") }
+        var outputText by remember { mutableStateOf("") }
 
         val focusRequester = remember { FocusRequester() }
+
+        var showSavePinDialog by remember { mutableStateOf(false) }
+        var showLoadPinDialog by remember { mutableStateOf(false) }
+        var showExportPinDialog by remember { mutableStateOf(false) }
+        var showImportPinDialog by remember { mutableStateOf(false) }
 
         Column(
             modifier = Modifier
@@ -74,9 +94,8 @@ class MainActivity : ComponentActivity() {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            OutlinedTextField(
-                value = inputText.value,
-                onValueChange = { inputText.value = it },
+            OutlinedTextField(value = inputText,
+                onValueChange = { inputText = it },
                 label = { Text("Enter text to encrypt") },
                 keyboardActions = KeyboardActions(onDone = {
                     focusManager.clearFocus()
@@ -87,35 +106,62 @@ class MainActivity : ComponentActivity() {
             )
 
             Button(onClick = {
-                saveData(context, inputText.value)
+                showSavePinDialog = true
             }) {
                 Text("Save")
             }
 
             Button(onClick = {
-                outputText.value = loadDecryptedData(context)
+                showLoadPinDialog = true
             }) {
                 Text("Load")
             }
 
-            OutlinedTextField(
-                value = outputText.value,
+            OutlinedTextField(value = outputText,
                 onValueChange = {},
                 label = { Text("Decrypted text") },
                 modifier = Modifier.fillMaxWidth()
             )
 
             Button(onClick = {
-
+                importDataFromFile()
+                showImportPinDialog = true
             }) {
                 Text("inport")
             }
 
             Button(onClick = {
-                saveDataToFile(inputText.value)
+                showExportPinDialog = true
             }) {
                 Text("export")
             }
+        }
+
+        if (showSavePinDialog) {
+            PinDialog(onDismiss = { showSavePinDialog = false }, onConfirm = { pin ->
+                saveData(context, inputText, pin)
+                showSavePinDialog = false
+            })
+        }
+        if (showLoadPinDialog) {
+            PinDialog(onDismiss = { showLoadPinDialog = false }, onConfirm = { pin ->
+                outputText = loadDecryptedData(context, pin)
+                showLoadPinDialog = false
+            })
+        }
+        if (showImportPinDialog) {
+            PinDialog(onDismiss = { showImportPinDialog = false }, onConfirm = { pin ->
+                inputText = importText
+                showImportPinDialog = false
+                fileSelected = false
+            })
+        }
+        if (showExportPinDialog) {
+            PinDialog(onDismiss = { showExportPinDialog = false }, onConfirm = { pin ->
+                saveDataToFile(inputText, pin)
+                showExportPinDialog = false
+            })
+
         }
     }
 
@@ -124,10 +170,13 @@ class MainActivity : ComponentActivity() {
         var pin by remember { mutableStateOf("") }
         Dialog(onDismissRequest = onDismiss) {
             Column(
-                modifier = Modifier.padding(16.dp)
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .background(MaterialTheme.colorScheme.background, RoundedCornerShape(16.dp))
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                TextField(
-                    value = pin,
+                TextField(value = pin,
                     onValueChange = { pin = it },
                     label = { Text("Enter PIN") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -147,7 +196,7 @@ class MainActivity : ComponentActivity() {
 
     private val cryptoManager = CryptoManager()
 
-    private fun saveData(context: Context, text: String) {
+    private fun saveData(context: Context, text: String, pin: String) {
         val bytes = text.encodeToByteArray()
         val file = File(context.filesDir, "secret.txt")
         if (!file.exists()) {
@@ -156,11 +205,11 @@ class MainActivity : ComponentActivity() {
         val fos = FileOutputStream(file)
 
         cryptoManager.encryptWithKeyAndPin(
-            data = bytes, outputStream = fos, pin = "1234"
+            data = bytes, outputStream = fos, pin = pin
         )
     }
 
-    private fun loadDecryptedData(context: Context): String {
+    private fun loadDecryptedData(context: Context, pin: String): String {
         val file = File(context.filesDir, "secret.txt")
         if (!file.exists()) {
             return ""
@@ -168,7 +217,7 @@ class MainActivity : ComponentActivity() {
         val fis = file.inputStream()
 
         val decryptedBytes = cryptoManager.decryptWithPin(
-            inputStream = fis, pin = "1234"
+            inputStream = fis, pin = pin
         )
         return decryptedBytes.toString(Charset.defaultCharset())
     }
@@ -179,9 +228,7 @@ class MainActivity : ComponentActivity() {
         uri?.let {
             try {
                 val outputStream = context.contentResolver.openOutputStream(uri)
-                val bw = BufferedWriter(OutputStreamWriter(outputStream))
-                bw.write(exportText)
-                bw.close()
+                cryptoManager.encryptWithKeyAndPin(exportText.toByteArray(), outputStream!!, "1234")
                 exportText = ""
                 Toast.makeText(this, "Plik zapisany", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
@@ -191,9 +238,39 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    fun saveDataToFile(text: String, pin: String = "1234") {
-        exportText = cryptoManager.encryptString(text.toByteArray(), "123").toString()
+    private val pickFile =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                val selectedFileUri: Uri? = result.data?.data
+                selectedFileUri?.let { uri ->
+                    try {
+                        val inputStream = contentResolver.openInputStream(uri)
+                        importText = cryptoManager.decryptWithPin(inputStream!!, "1234").decodeToString()
+                        fileSelected = true
+                    } catch (e: FileNotFoundException) {
+                        e.printStackTrace()
+                        Toast.makeText(this, "Nie można odnaleźć pliku", Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        Toast.makeText(
+                            this, "Wystąpił błąd podczas odczytu pliku", Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            }
+        }
+
+    fun saveDataToFile(text: String, pin: String) {
+        exportText = text
         resultLauncher.launch("exported_text.txt")
+    }
+
+    fun importDataFromFile() {
+
+        pickFile.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "text/plain"
+        })
     }
 
 

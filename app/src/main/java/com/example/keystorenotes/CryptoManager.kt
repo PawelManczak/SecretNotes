@@ -80,14 +80,14 @@ class CryptoManager {
 
     fun encryptString(dataToEncrypt: ByteArray, pin: String): ByteArray {
         val keySpec = generateKey(pin)
-        val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+        val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, keySpec, IvParameterSpec(ByteArray(16)))
         return cipher.doFinal(dataToEncrypt)
     }
 
     fun decryptString(dataToDecrypt: ByteArray, pin: String): ByteArray {
         val keySpec = generateKey(pin)
-        val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+        val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, keySpec, IvParameterSpec(ByteArray(16)))
         return cipher.doFinal(dataToDecrypt)
     }
