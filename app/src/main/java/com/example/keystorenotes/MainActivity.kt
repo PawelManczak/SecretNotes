@@ -2,8 +2,10 @@ package com.example.keystorenotes
 
 import android.content.Context
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts.CreateDocument
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -32,131 +34,167 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.example.keystorenotes.ui.theme.KeystoreNotesTheme
+import java.io.BufferedWriter
 import java.io.File
 import java.io.FileOutputStream
+import java.io.OutputStreamWriter
 import java.nio.charset.Charset
 
 class MainActivity : ComponentActivity() {
+
+    lateinit var context: Context
+    private var exportText: String = ""
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+
         setContent {
             KeystoreNotesTheme {
+                context = LocalContext.current
                 DataEncryptionScreen()
             }
         }
     }
-}
 
-@Composable
-fun DataEncryptionScreen() {
-    val context = LocalContext.current
-    val focusManager = LocalFocusManager.current
+    @Composable
+    fun DataEncryptionScreen() {
+        val context = LocalContext.current
+        val focusManager = LocalFocusManager.current
 
-    val inputText = remember { mutableStateOf("") }
-    val outputText = remember { mutableStateOf("") }
+        val inputText = remember { mutableStateOf("") }
+        val outputText = remember { mutableStateOf("") }
 
-    val focusRequester = remember { FocusRequester() }
+        val focusRequester = remember { FocusRequester() }
 
-    Column(
-        modifier = Modifier
-            .padding(16.dp)
-            .fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        OutlinedTextField(value = inputText.value,
-            onValueChange = { inputText.value = it },
-            label = { Text("Enter text to encrypt") },
-            keyboardActions = KeyboardActions(onDone = {
-                focusManager.clearFocus()
-            }),
-            modifier = Modifier
-                .fillMaxWidth()
-                .focusRequester(focusRequester)
-        )
-
-        Button(onClick = {
-            saveData(context, inputText.value)
-        }) {
-            Text("Save")
-        }
-
-        Button(onClick = {
-            outputText.value = loadDecryptedData(context)
-        }) {
-            Text("Load")
-        }
-
-        OutlinedTextField(value = outputText.value,
-            onValueChange = {},
-            label = { Text("Decrypted text") },
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Button(onClick = {
-
-        }) {
-            Text("inport")
-        }
-
-        Button(onClick = {
-
-        }) {
-            Text("export")
-        }
-    }
-}
-
-@Composable
-fun PinDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
-    var pin by remember { mutableStateOf("") }
-    Dialog(onDismissRequest = onDismiss) {
         Column(
-            modifier = Modifier.padding(16.dp)
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            TextField(value = pin,
-                onValueChange = { pin = it },
-                label = { Text("Enter PIN") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            OutlinedTextField(
+                value = inputText.value,
+                onValueChange = { inputText.value = it },
+                label = { Text("Enter text to encrypt") },
                 keyboardActions = KeyboardActions(onDone = {
-                    onDismiss()
-                }))
-            Spacer(modifier = Modifier.height(16.dp))
+                    focusManager.clearFocus()
+                }),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester)
+            )
+
             Button(onClick = {
-                onConfirm(pin)
+                saveData(context, inputText.value)
             }) {
-                Text("OK")
+                Text("Save")
+            }
+
+            Button(onClick = {
+                outputText.value = loadDecryptedData(context)
+            }) {
+                Text("Load")
+            }
+
+            OutlinedTextField(
+                value = outputText.value,
+                onValueChange = {},
+                label = { Text("Decrypted text") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Button(onClick = {
+
+            }) {
+                Text("inport")
+            }
+
+            Button(onClick = {
+                saveDataToFile(inputText.value)
+            }) {
+                Text("export")
             }
         }
     }
-}
 
-private val cryptoManager = CryptoManager()
-
-private fun saveData(context: Context, text: String) {
-    val bytes = text.encodeToByteArray()
-    val file = File(context.filesDir, "secret.txt")
-    if(!file.exists()) {
-        file.createNewFile()
+    @Composable
+    fun PinDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+        var pin by remember { mutableStateOf("") }
+        Dialog(onDismissRequest = onDismiss) {
+            Column(
+                modifier = Modifier.padding(16.dp)
+            ) {
+                TextField(
+                    value = pin,
+                    onValueChange = { pin = it },
+                    label = { Text("Enter PIN") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    keyboardActions = KeyboardActions(onDone = {
+                        onDismiss()
+                    })
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(onClick = {
+                    onConfirm(pin)
+                }) {
+                    Text("OK")
+                }
+            }
+        }
     }
-    val fos = FileOutputStream(file)
 
-    cryptoManager.encryptWithKeyAndPin(
-        data = bytes,
-        outputStream = fos,
-        pin = "1234"
-    )
-}
+    private val cryptoManager = CryptoManager()
 
-private fun loadDecryptedData(context: Context): String {
-    val file = File(context.filesDir, "secret.txt")
-    if(!file.exists()) {
-        return ""
+    private fun saveData(context: Context, text: String) {
+        val bytes = text.encodeToByteArray()
+        val file = File(context.filesDir, "secret.txt")
+        if (!file.exists()) {
+            file.createNewFile()
+        }
+        val fos = FileOutputStream(file)
+
+        cryptoManager.encryptWithKeyAndPin(
+            data = bytes, outputStream = fos, pin = "1234"
+        )
     }
-    val fis = file.inputStream()
 
-    val decryptedBytes = cryptoManager.decryptWithPin(
-        inputStream = fis,
-        pin = "1234")
-    return decryptedBytes.toString(Charset.defaultCharset())
+    private fun loadDecryptedData(context: Context): String {
+        val file = File(context.filesDir, "secret.txt")
+        if (!file.exists()) {
+            return ""
+        }
+        val fis = file.inputStream()
+
+        val decryptedBytes = cryptoManager.decryptWithPin(
+            inputStream = fis, pin = "1234"
+        )
+        return decryptedBytes.toString(Charset.defaultCharset())
+    }
+
+    private val resultLauncher = registerForActivityResult(
+        CreateDocument("text/plain")
+    ) { uri ->
+        uri?.let {
+            try {
+                val outputStream = context.contentResolver.openOutputStream(uri)
+                val bw = BufferedWriter(OutputStreamWriter(outputStream))
+                bw.write(exportText)
+                bw.close()
+                exportText = ""
+                Toast.makeText(this, "Plik zapisany", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(this, "Wystąpił błąd podczas zapisu pliku", Toast.LENGTH_SHORT)
+                    .show()
+            }
+        }
+    }
+
+    fun saveDataToFile(text: String, pin: String = "1234") {
+        exportText = cryptoManager.encryptString(text.toByteArray(), "123").toString()
+        resultLauncher.launch("exported_text.txt")
+    }
+
+
 }
