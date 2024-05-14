@@ -1,12 +1,9 @@
 package com.example.keystorenotes
 
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.util.Base64
-import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -43,20 +40,19 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.example.keystorenotes.ui.theme.KeystoreNotesTheme
-import java.io.BufferedReader
-import java.io.BufferedWriter
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.FileOutputStream
-import java.io.InputStreamReader
-import java.io.OutputStreamWriter
+import java.io.InputStream
 import java.nio.charset.Charset
 
 class MainActivity : ComponentActivity() {
 
     lateinit var context: Context
     private var exportText: String = ""
+    private var exportPin: String = ""
     private var importText: String = ""
+    private var importStream: InputStream? = null
     private var fileSelected = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -94,7 +90,8 @@ class MainActivity : ComponentActivity() {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            OutlinedTextField(value = inputText,
+            OutlinedTextField(
+                value = inputText,
                 onValueChange = { inputText = it },
                 label = { Text("Enter text to encrypt") },
                 keyboardActions = KeyboardActions(onDone = {
@@ -117,7 +114,8 @@ class MainActivity : ComponentActivity() {
                 Text("Load")
             }
 
-            OutlinedTextField(value = outputText,
+            OutlinedTextField(
+                value = outputText,
                 onValueChange = {},
                 label = { Text("Decrypted text") },
                 modifier = Modifier.fillMaxWidth()
@@ -126,8 +124,9 @@ class MainActivity : ComponentActivity() {
             Button(onClick = {
                 importDataFromFile()
                 showImportPinDialog = true
+
             }) {
-                Text("inport")
+                Text("import")
             }
 
             Button(onClick = {
@@ -145,13 +144,30 @@ class MainActivity : ComponentActivity() {
         }
         if (showLoadPinDialog) {
             PinDialog(onDismiss = { showLoadPinDialog = false }, onConfirm = { pin ->
-                outputText = loadDecryptedData(context, pin)
+                try {
+                    outputText = loadDecryptedData(context, pin)
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        this,
+                        "Wystąpił błąd podczas odczytu pliku, spróbuj jeszcze raz",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
                 showLoadPinDialog = false
             })
         }
         if (showImportPinDialog) {
             PinDialog(onDismiss = { showImportPinDialog = false }, onConfirm = { pin ->
-                inputText = importText
+                try {
+                    inputText = cryptoManager.decryptWithPin(importStream!!, pin).decodeToString()
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        this,
+                        "Wystąpił błąd podczas importu pliku, spróbuj jeszcze raz",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                importStream!!.close()
                 showImportPinDialog = false
                 fileSelected = false
             })
@@ -173,10 +189,10 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier
                     .fillMaxWidth(0.9f)
                     .background(MaterialTheme.colorScheme.background, RoundedCornerShape(16.dp))
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                TextField(value = pin,
+                TextField(
+                    value = pin,
                     onValueChange = { pin = it },
                     label = { Text("Enter PIN") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -222,14 +238,17 @@ class MainActivity : ComponentActivity() {
         return decryptedBytes.toString(Charset.defaultCharset())
     }
 
-    private val resultLauncher = registerForActivityResult(
+    private val exportFile = registerForActivityResult(
         CreateDocument("text/plain")
     ) { uri ->
         uri?.let {
             try {
                 val outputStream = context.contentResolver.openOutputStream(uri)
-                cryptoManager.encryptWithKeyAndPin(exportText.toByteArray(), outputStream!!, "1234")
+                cryptoManager.encryptWithKeyAndPin(
+                    exportText.toByteArray(), outputStream!!, exportPin
+                )
                 exportText = ""
+                exportPin = ""
                 Toast.makeText(this, "Plik zapisany", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 Toast.makeText(this, "Wystąpił błąd podczas zapisu pliku", Toast.LENGTH_SHORT)
@@ -238,14 +257,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private val pickFile =
+    private val importFile =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
                 val selectedFileUri: Uri? = result.data?.data
                 selectedFileUri?.let { uri ->
                     try {
-                        val inputStream = contentResolver.openInputStream(uri)
-                        importText = cryptoManager.decryptWithPin(inputStream!!, "1234").decodeToString()
+                        importStream = contentResolver.openInputStream(uri)
                         fileSelected = true
                     } catch (e: FileNotFoundException) {
                         e.printStackTrace()
@@ -262,12 +280,12 @@ class MainActivity : ComponentActivity() {
 
     fun saveDataToFile(text: String, pin: String) {
         exportText = text
-        resultLauncher.launch("exported_text.txt")
+        exportPin = pin
+        exportFile.launch("exported_text.txt")
     }
 
     fun importDataFromFile() {
-
-        pickFile.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+        importFile.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "text/plain"
         })
